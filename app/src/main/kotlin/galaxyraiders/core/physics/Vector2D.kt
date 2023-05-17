@@ -58,11 +58,6 @@ data class Vector2D(val dx: Double, val dy: Double) {
   }
 
   fun vectorProject(target: Vector2D): Vector2D {
-    //return (times(target) / target.magnitude.pow(2)) * target
-    //return Vector2D(sqrt(scalarProject(target) * dx), sqrt(scalarProject(target) * dy))
-    //return Vector2D(scalarProject(target) * target.dx, scalarProject(target) + target.dy)
-    //return scalarProject(target) * target.unit
-    //return Vector2D(round(((times(target)/(target.magnitude*target.magnitude))) * target.dx), round(((times(target)/(target.magnitude*target.magnitude)))*target.dy))
     return Vector2D(((((times(target)/(target.magnitude*target.magnitude))) * target.dx) * 100).roundToInt() / 100.0, ((((times(target)/(target.magnitude*target.magnitude)))*target.dy) * 100).roundToInt() / 100.0)
 
   }
