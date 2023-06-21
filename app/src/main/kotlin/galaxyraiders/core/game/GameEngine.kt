@@ -1,11 +1,22 @@
 package galaxyraiders.core.game
 
+import com.fasterxml.jackson.databind.JsonDeserializer
+import com.fasterxml.jackson.databind.ObjectMapper
 import galaxyraiders.Config
+import galaxyraiders.core.score.Score
 import galaxyraiders.ports.RandomGenerator
 import galaxyraiders.ports.ui.Controller
 import galaxyraiders.ports.ui.Controller.PlayerCommand
 import galaxyraiders.ports.ui.Visualizer
+import java.io.File
+import java.util.*
 import kotlin.system.measureTimeMillis
+
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
+import java.time.LocalDate
+import java.util.Date
+
 
 const val MILLISECONDS_PER_SECOND: Int = 1000
 
@@ -17,7 +28,8 @@ object GameEngineConfig {
   val spaceFieldHeight = config.get<Int>("SPACEFIELD_HEIGHT")
   val asteroidProbability = config.get<Double>("ASTEROID_PROBABILITY")
   val coefficientRestitution = config.get<Double>("COEFFICIENT_RESTITUTION")
-
+  val leaderboardJsonFile = File("./src/main/kotlin/galaxyraiders/core/score/Leaderboard.json")
+  val scoreboardJsonFile = File("./src/main/kotlin/galaxyraiders/core/score/Scoreboard.json")
   val msPerFrame: Int = MILLISECONDS_PER_SECOND / this.frameRate
 }
 
@@ -34,6 +46,8 @@ class GameEngine(
   )
 
   var playing = true
+  var mapper = ObjectMapper()
+  var newPlayer = true
 
   fun execute() {
     while (true) {
@@ -82,7 +96,45 @@ class GameEngine(
     this.moveSpaceObjects()
     this.trimSpaceObjects()
     this.generateAsteroids()
+    this.updateScoreBoard()
+    this.updateLeaderboard()
   }
+
+  fun updateLeaderboard() {
+    val scoreboard = GameEngineConfig.scoreboardJsonFile
+    val leaderboard = GameEngineConfig.leaderboardJsonFile
+    var top3: List<Score>
+
+    var scoreList: MutableList<Score> = mapper.readValue(scoreboard, mapper.typeFactory.constructCollectionType(MutableList::class.java, Score::class.java))
+    scoreList.sortByDescending { it.score }
+
+    if(scoreList.size > 3){
+      top3 = scoreList.take(3)
+    }
+    else
+    {
+      top3 = scoreList
+    }
+
+    mapper.writeValue(leaderboard, top3)
+  }
+
+  fun updateScoreBoard() {
+    val scoreboard = GameEngineConfig.scoreboardJsonFile
+    var scoreList: MutableList<Score> = mapper.readValue(scoreboard, mapper.typeFactory.constructCollectionType(MutableList::class.java, Score::class.java))
+
+    if (newPlayer) {
+      val newScore = Score(Date(), this.field.score, this.field.explodedAsteroids)
+      scoreList.add(newScore)
+      newPlayer = false
+    } else {
+      var lastScore: Score = scoreList.last()
+      lastScore.score = this.field.score
+      lastScore.asteroidsDestroyed = this.field.explodedAsteroids + 1
+    }
+
+    mapper.writeValue(scoreboard, scoreList)
+    }
 
   fun handleCollisions() {
     this.field.spaceObjects.forEachPair {
