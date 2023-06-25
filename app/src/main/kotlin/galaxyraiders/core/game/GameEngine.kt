@@ -43,6 +43,12 @@ class GameEngine(
 
   var score = Score(LocalDateTime.now(), LocalDateTime.now(), 0.0, 0)
 
+  fun clearFileContents(file: File) {
+    if (file.exists() && file.length() > 0) {
+      file.writeText("")
+    }
+  }
+
   var playing = true
 
   fun execute() {
@@ -56,7 +62,9 @@ class GameEngine(
     }
 """.trimIndent()
 
-    var scoreboard = File("src/main/kotlin/galaxyraiders/core/score/Scoreboard.json")
+    val scoreboard = File("src/main/kotlin/galaxyraiders/core/score/Scoreboard.json")
+    clearFileContents(scoreboard)
+
     scoreboard.writeText(scorejson)
 
     while (true) {
