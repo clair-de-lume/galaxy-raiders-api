@@ -1,22 +1,20 @@
 package galaxyraiders.core.game
 
-import com.fasterxml.jackson.databind.JsonDeserializer
-import com.fasterxml.jackson.databind.ObjectMapper
 import galaxyraiders.Config
-import galaxyraiders.core.score.Score
 import galaxyraiders.ports.RandomGenerator
 import galaxyraiders.ports.ui.Controller
 import galaxyraiders.ports.ui.Controller.PlayerCommand
 import galaxyraiders.ports.ui.Visualizer
-import java.io.File
-import java.util.*
 import kotlin.system.measureTimeMillis
-
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
-import java.time.LocalDate
-import java.util.Date
-
+import java.time.LocalDateTime
+import java.io.File
+import kotlin.collections.List
+import com.beust.klaxon.Klaxon
+import com.beust.klaxon.JsonArray
+import com.beust.klaxon.JsonObject
+import galaxyraiders.core.score.Score
+import com.beust.klaxon.Parser
+import java.time.format.DateTimeFormatter
 
 const val MILLISECONDS_PER_SECOND: Int = 1000
 
@@ -28,8 +26,7 @@ object GameEngineConfig {
   val spaceFieldHeight = config.get<Int>("SPACEFIELD_HEIGHT")
   val asteroidProbability = config.get<Double>("ASTEROID_PROBABILITY")
   val coefficientRestitution = config.get<Double>("COEFFICIENT_RESTITUTION")
-  val leaderboardJsonFile = File("./src/main/kotlin/galaxyraiders/core/score/Leaderboard.json")
-  val scoreboardJsonFile = File("./src/main/kotlin/galaxyraiders/core/score/Scoreboard.json")
+
   val msPerFrame: Int = MILLISECONDS_PER_SECOND / this.frameRate
 }
 
@@ -45,11 +42,34 @@ class GameEngine(
     generator = generator
   )
 
+  var beginTime: String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+  var endTime: String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+  var score = Score(beginTime, endTime, 0.0, 0)
+  val scoreboard = File("src/main/kotlin/galaxyraiders/core/score/Scoreboard.json")
+  val leaderboard = File("src/main/kotlin/galaxyraiders/core/score/Leaderboard.json")
+
+  fun clearFileContents(file: File) {
+    if (file.exists() && file.length() > 0) {
+      file.writeText("")
+    }
+  }
+
   var playing = true
-  var mapper = ObjectMapper()
-  var newPlayer = true
 
   fun execute() {
+
+    val scorejson = """
+    {
+        "beginTime": ${score.beginTime},
+        "endTime": ${score.endTime},
+        "score": ${score.score},
+        "asteroidsHit": ${score.asteroidsHit}
+    }
+""".trimIndent()
+
+    clearFileContents(scoreboard)
+    scoreboard.writeText(scorejson)
+
     while (true) {
       val duration = measureTimeMillis { this.tick() }
 
@@ -69,6 +89,8 @@ class GameEngine(
     this.processPlayerInput()
     this.updateSpaceObjects()
     this.renderSpaceField()
+    this.updateScoreBoardJson()
+    this.updateLeaderboardJson()
   }
 
   fun processPlayerInput() {
@@ -96,69 +118,85 @@ class GameEngine(
     this.moveSpaceObjects()
     this.trimSpaceObjects()
     this.generateAsteroids()
-    this.updateScoreBoard()
-    this.updateLeaderboard()
   }
-
-  fun updateLeaderboard() {
-    val scoreboard = GameEngineConfig.scoreboardJsonFile
-    val leaderboard = GameEngineConfig.leaderboardJsonFile
-    var top3: List<Score>
-
-    var scoreList: MutableList<Score> = mapper.readValue(scoreboard, mapper.typeFactory.constructCollectionType(MutableList::class.java, Score::class.java))
-    scoreList.sortByDescending { it.score }
-
-    if(scoreList.size > 3){
-      top3 = scoreList.take(3)
-    }
-    else
-    {
-      top3 = scoreList
-    }
-
-    mapper.writeValue(leaderboard, top3)
-  }
-
-  fun updateScoreBoard() {
-    val scoreboard = GameEngineConfig.scoreboardJsonFile
-    var scoreList: MutableList<Score> = mapper.readValue(scoreboard, mapper.typeFactory.constructCollectionType(MutableList::class.java, Score::class.java))
-
-    if (newPlayer) {
-      val newScore = Score(Date(), this.field.score, this.field.explodedAsteroids)
-      scoreList.add(newScore)
-      newPlayer = false
-    } else {
-      var lastScore: Score = scoreList.last()
-      lastScore.score = this.field.score
-      lastScore.asteroidsDestroyed = this.field.explodedAsteroids + 1
-    }
-
-    mapper.writeValue(scoreboard, scoreList)
-    }
 
   fun handleCollisions() {
     this.field.spaceObjects.forEachPair {
-        (first, second) -> testCollision(first,second)
+        (first, second) ->
+      if (first.impacts(second)) {
+        if (first is Asteroid && second is Missile) {
+          score.increaseScore(first)
+          this.field.destroyMissile(second)
+          this.field.generateExplosion(first)
+        }
+        else if (first is Missile && second is Asteroid) {
+          score.increaseScore(second)
+          this.field.destroyMissile(first)
+          this.field.generateExplosion(second)
+        }
+        first.collideWith(second, GameEngineConfig.coefficientRestitution)
+      }
     }
   }
 
-  private fun testCollision(first: SpaceObject, second: SpaceObject) {
-    if(!first.impacts(second)) return;
-    first.collideWith(second, GameEngineConfig.coefficientRestitution)
-    var missile: Missile
-    var asteroid: Asteroid
-    if(first is Missile && second is Asteroid){
-      missile = first
-      asteroid = second
-      this.field.generateExplosion(missile,asteroid)
-    }
-    if(first is Asteroid && second is Missile){
-      missile = second
-      asteroid = first
-      this.field.generateExplosion(missile, asteroid)
+  fun updateScoreBoardJson(){
+    val jsonString = this.scoreboard.readText()
+    val parser = Parser.default()
+    val json = parser.parse(StringBuilder(jsonString)) as? JsonArray<*>
+
+    if (json != null && json.isNotEmpty()) {
+      val entry = json[0] as? JsonObject
+      if (entry != null) {
+        // Modify the desired parameters in the first entry
+        score.setEnd()
+        entry["endTime"] = score.endTime
+        entry["score"] = score.score
+        entry["asteroidsHit"] = score.asteroidsHit
+      }
+      // Write the updated JSON back to the file
+      val updatedJsonString = Klaxon().toJsonString(json)
+      scoreboard.writeText(updatedJsonString)
     }
   }
 
+  fun updateLeaderboardJson() {
+    val scores = mutableListOf<Score>()
+
+    if (this.leaderboard.exists() && this.leaderboard.length() > 0) {
+      val jsonFilePath = "src/main/kotlin/galaxyraiders/core/score/Leaderboard.json"
+      val jsonArray = Parser.default().parse(StringBuilder(jsonFilePath)) as JsonArray<JsonObject>
+
+      jsonArray.forEach { jsonObject ->
+        val beginTime: String = jsonObject.string("beginTime") ?: ""
+        val endTime: String = jsonObject.string("endTime") ?: ""
+        val score: Double = jsonObject.double("score") ?: 0.0
+        val asteroidsHit: Int = jsonObject.int("asteroidsHit") ?: 0
+
+        val temp = Score(beginTime, endTime, score, asteroidsHit)
+        scores.add(temp)
+      }
+    }
+    else {
+      val jsonFilePath = "src/main/kotlin/galaxyraiders/core/score/Scoreboard.json"
+      val jsonArray = Parser.default().parse(StringBuilder(jsonFilePath)) as JsonArray<JsonObject>
+
+      jsonArray.forEach { jsonObject ->
+        val beginTime: String = jsonObject.string("beginTime") ?: ""
+        val endTime: String = jsonObject.string("endTime") ?: ""
+        val score: Double = jsonObject.double("score") ?: 0.0
+        val asteroidsHit: Int = jsonObject.int("asteroidsHit") ?: 0
+
+        val temp = Score(beginTime, endTime, score, asteroidsHit)
+        scores.add(temp)
+      }
+    }
+
+    val leaders = scores.sortedByDescending { it.score }
+    for(i in 0..2) {
+      val updatedJsonString = Klaxon().toJsonString(leaders[i])
+      leaderboard.writeText(updatedJsonString)
+    }
+  }
 
   fun moveSpaceObjects() {
     this.field.moveShip()
