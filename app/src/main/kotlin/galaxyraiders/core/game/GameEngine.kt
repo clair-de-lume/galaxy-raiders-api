@@ -6,6 +6,14 @@ import galaxyraiders.ports.ui.Controller
 import galaxyraiders.ports.ui.Controller.PlayerCommand
 import galaxyraiders.ports.ui.Visualizer
 import kotlin.system.measureTimeMillis
+import java.time.LocalDateTime
+import java.io.File
+import kotlin.collections.List
+import com.beust.klaxon.Klaxon
+import com.beust.klaxon.JsonArray
+import com.beust.klaxon.JsonObject
+import galaxyraiders.core.score.Score
+import com.beust.klaxon.Parser
 
 const val MILLISECONDS_PER_SECOND: Int = 1000
 
@@ -33,15 +41,47 @@ class GameEngine(
     generator = generator
   )
 
+  var score = Score(LocalDateTime.now(), LocalDateTime.now(), 0.0, 0)
+
   var playing = true
 
   fun execute() {
+
+    val scorejson = """
+    {
+        "beginTime": ${score.beginTimeFormatted},
+        "endTime": ${score.endTimeFormatted},
+        "score": ${score.score},
+        "asteroidsHit": ${score.asteroidsHit}
+    }
+""".trimIndent()
+
+    var scoreboard = File("src/main/kotlin/galaxyraiders/core/score/Scoreboard.json")
+    scoreboard.writeText(scorejson)
+
     while (true) {
       val duration = measureTimeMillis { this.tick() }
 
       Thread.sleep(
         maxOf(0, GameEngineConfig.msPerFrame - duration)
       )
+      val jsonString = scoreboard.readText()
+      val parser = Parser.default()
+      val json = parser.parse(StringBuilder(jsonString)) as? JsonArray<*>
+
+      if (json != null && json.isNotEmpty()) {
+        val entry = json[0] as? JsonObject
+        if (entry != null) {
+          // Modify the desired parameters in the first entry
+          score.setEnd()
+          entry["endTime"] = score.endTimeFormatted
+          entry["score"] = score.score
+          entry["asteroidsHit"] = score.asteroidsHit
+        }
+        // Write the updated JSON back to the file
+        val updatedJsonString = Klaxon().toJsonString(json)
+        scoreboard.writeText(updatedJsonString)
+      }
     }
   }
 
@@ -89,10 +129,12 @@ class GameEngine(
         (first, second) ->
       if (first.impacts(second)) {
         if (first is Asteroid && second is Missile) {
+          score.increaseScore(first)
           this.field.destroyMissile(second)
           this.field.generateExplosion(first)
         }
         else if (first is Missile && second is Asteroid) {
+          score.increaseScore(second)
           this.field.destroyMissile(first)
           this.field.generateExplosion(second)
         }
