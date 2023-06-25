@@ -6,7 +6,7 @@ class Score (
   var score: Double = 0.0,
   var asteroidsHit: Int = 0
 ) {
-  val beginTimeFormatted: String = beginTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+  var beginTimeFormatted: String = beginTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
   var endTimeFormatted: String = endTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
 
   fun increaseScore(asteroid: Asteroid){
